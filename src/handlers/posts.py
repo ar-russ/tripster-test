@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from src.enums.rating import VoteType
+from src.enums.filters import Filter
 from src.models.db import User
 from src.models.dto.post import CreatePost, GetPost
 from src.services.db.posts import posts_service
@@ -77,11 +78,9 @@ async def cancel_vote(post_id: int, user: User = Depends(get_current_user())):
     return {"success": True}
 
 
-@router.get("/posts/latest")
-async def get_latest_posts(amount: int = 10) -> list[GetPost]:
-    return [await get_post_view(post) for post in await posts_service.get_latest_posts(amount)]
-
-
-@router.get("/posts/best")
-async def get_best_posts(amount: int = 10) -> list[GetPost]:
-    return [await get_post_view(post) for post in await posts_service.get_best_posts(amount)]
+@router.get("/posts")
+async def get_posts(sorting: Filter, amount: int = 10) -> list[GetPost]:
+    if sorting == Filter.latest:
+        return await posts_service.get_latest_posts(amount)
+    if sorting == Filter.best:
+        return await posts_service.get_best_posts(amount)

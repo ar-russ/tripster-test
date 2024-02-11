@@ -1,10 +1,11 @@
 from sqlalchemy import desc
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, ColumnElement
 from sqlalchemy.future import select
 
 from src.services.db.base import BaseDBService
 from src.services.db.rating import rating_service
 from src.models.db import Post, User, Vote
+from src.models.dto.post import GetPost
 from src.enums.rating import VoteType
 
 
@@ -42,22 +43,18 @@ class PostsService(BaseDBService):
         await self.session.commit()
         return post
 
-    async def get_latest_posts(self, amount: int) -> list[Post]:
+    async def get_posts(
+            self,
+            amount: int,
+            post_filter: ColumnElement = Post.created
+    ) -> list[GetPost]:
         """
-        Получение публикаций, отфильтрованных по дате создания, начиная с самой последней
+        Получение постов из БД по указанному фильтру
         :param amount: Кол-во публикаций для вывода
-        :return: Список БД-объектов Post
+        :param post_filter: Фильтр SQLAlchemy, по которому будут сортироваться посты.
+        :return: DTO модель GetPost с данными о публикации, её рейтингом и кол-вом голосов
         """
-        statement = select(Post).order_by(desc(Post.created)).limit(amount)
-        result = await self.session.execute(statement)
-        return list(result.scalars())
-
-    async def get_best_posts(self, amount: int) -> list[Post]:
-        """
-        Получение публикаций, отфильтрованных по рейтингу, начиная с самой лучшей
-        :param amount: Кол-во публикаций для вывода
-        :return: Список БД-объектов Post
-        """
+        # С помощью этих селектов будем считать рейтинг публикаций
         upvotes_count = (select(func.count())
                          .where(Vote.post_id == Post.id)
                          .where(Vote.type == VoteType.upvote).scalar_subquery())
@@ -65,9 +62,46 @@ class PostsService(BaseDBService):
                            .where(Vote.post_id == Post.id)
                            .where(Vote.type == VoteType.downvote).scalar_subquery())
 
-        statement = select(Post).order_by(desc(upvotes_count - downvotes_count)).limit(amount)
+        statement = select(Post).order_by(post_filter).limit(amount)
+        statement = statement.add_columns((upvotes_count - downvotes_count).label("rating"))
+        statement = statement.add_columns(
+            select(func.count().label("votes_amount"))
+            .where(Vote.post_id == Post.id).scalar_subquery()
+        )
         result = await self.session.execute(statement)
-        return list(result.scalars())
+        return [
+            GetPost(
+                body=row[0].body,
+                created=row[0].created,
+                author_id=row[0].author_id,
+                rating=row[1],
+                votes_amount=row[2],
+            ) for row in result.all()
+        ]
+
+    async def get_latest_posts(self, amount: int) -> list[GetPost]:
+        """
+        Получение публикаций, отфильтрованных по дате создания, начиная с самой последней
+        :param amount: Кол-во публикаций для вывода
+        :return: Список БД-объектов Post
+        """
+        return await self.get_posts(amount, desc(Post.created))
+
+    async def get_best_posts(self, amount: int) -> list[GetPost]:
+        """
+        Получение публикаций, отфильтрованных по рейтингу, начиная с самой лучшей
+        :param amount: Кол-во публикаций для вывода
+        :return: Список БД-объектов Post
+        """
+        # С помощью этих селектов задаём фильтрацию постов
+        upvotes_count = (select(func.count())
+                         .where(Vote.post_id == Post.id)
+                         .where(Vote.type == VoteType.upvote).scalar_subquery())
+        downvotes_count = (select(func.count())
+                           .where(Vote.post_id == Post.id)
+                           .where(Vote.type == VoteType.downvote).scalar_subquery())
+
+        return await self.get_posts(amount, desc(upvotes_count - downvotes_count))
 
     @staticmethod
     async def upvote(post_id: int, user_id: int) -> None:
