@@ -83,7 +83,7 @@ class PostsService(BaseDBService):
         """
         Получение публикаций, отфильтрованных по дате создания, начиная с самой последней
         :param amount: Кол-во публикаций для вывода
-        :return: Список БД-объектов Post
+        :return: Список DTO-Моделей GetPost
         """
         return await self.get_posts(amount, desc(Post.created))
 
@@ -91,7 +91,7 @@ class PostsService(BaseDBService):
         """
         Получение публикаций, отфильтрованных по рейтингу, начиная с самой лучшей
         :param amount: Кол-во публикаций для вывода
-        :return: Список БД-объектов Post
+        :return: Список DTO-Моделей GetPost
         """
         # С помощью этих селектов задаём фильтрацию постов
         upvotes_count = (select(func.count())
